@@ -1,26 +1,44 @@
-import * as core from '@actions/core'
-import { wait } from './wait'
+import * as core from "@actions/core"
+import { getTagsForReference } from "./github_api"
 
-/**
- * The main function for the action.
- * @returns {Promise<void>} Resolves when the action is complete.
- */
-export async function run(): Promise<void> {
-  try {
-    const ms: string = core.getInput('milliseconds')
+// 1. get service tag as input
+// 2. search for last -rc tag for service
+// 3. collect all tags since last -rc tag non-including range
+//    - if len(tags) == 0 return
+// 4. create release with service name, current version
+//    and all tag + commit message
+// 5. create -rc tag on current ref
 
-    // Debug logs are only output if the `ACTIONS_STEP_DEBUG` secret is true
-    core.debug(`Waiting ${ms} milliseconds ...`)
+export const run = async (): Promise<void> => {
+    try {
+        await release(core.getInput("release-tag"))
+    } catch (error) {
+        if (error instanceof Error) core.setFailed(error.message)
+    }
+}
 
-    // Log the current timestamp, wait, then log the new timestamp
-    core.debug(new Date().toTimeString())
-    await wait(parseInt(ms, 10))
-    core.debug(new Date().toTimeString())
+const release = async (releaseTag: string) => {
+    const owner = "vwdfive"
+    const repo = "weconnect-backend"
+    let tags = await getTagsForReference(releaseTag, owner, repo)
+    tags.sort(sortTag)
+}
 
-    // Set outputs for other workflow steps to use
-    core.setOutput('time', new Date().toTimeString())
-  } catch (error) {
-    // Fail the workflow run if an error occurs
-    if (error instanceof Error) core.setFailed(error.message)
-  }
+const sortTag = (a: string, b: string) => {
+    const splitA = a.split("/")
+    const va: string = splitA[splitA.length - 1]
+    const splitB = b.split("/")
+    const vb: string = splitB[splitB.length - 1]
+
+    const [mja, mia, pa] = decomposeSemver(va)
+    const [mjb, mib, pb] = decomposeSemver(vb)
+
+    if (mja !== mjb) return mjb - mja
+    if (mia !== mib) return mib - mia
+    return pb - pa
+}
+
+const decomposeSemver = (v: string): Array<number> => {
+    const left = v.split("-")[0]
+    return left.split(".").map(s => parseInt(s))
 }
